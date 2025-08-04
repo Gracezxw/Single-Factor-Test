@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import akshare as ak
 import pandas as pd
 import os
@@ -12,7 +13,16 @@ logger = logging.getLogger(__name__)
 
 def get_exchange_by_code(stock_code):
     """根据股票代码判断交易所"""
+    # 处理NaN值
+    if pd.isna(stock_code):
+        return 'Unknown'
+    
+    # 转换为字符串并去除空格
     code = str(stock_code).strip()
+    
+    # 处理空字符串
+    if not code or code == 'nan':
+        return 'Unknown'
     
     # 处理带前缀的代码
     if code.startswith(('bj', 'sz', 'sh')):
@@ -91,6 +101,14 @@ def get_stock_list(force_update=False):
 
 def download_stock_data(stock_code, start_date="20100101", end_date="20201231", output_dir="stock_data", max_retries=3):
     """下载单支股票的历史数据，带重试机制"""
+    # 确保股票代码是字符串类型
+    if pd.isna(stock_code):
+        return stock_code, False, 0
+    
+    stock_code_str = str(stock_code).strip()
+    if not stock_code_str or stock_code_str == 'nan':
+        return stock_code, False, 0
+    
     for attempt in range(max_retries):
         try:
             # 创建输出目录
@@ -101,7 +119,7 @@ def download_stock_data(stock_code, start_date="20100101", end_date="20201231", 
             
             # 获取股票历史数据
             df = ak.stock_zh_a_hist(
-                symbol=stock_code, 
+                symbol=stock_code_str, 
                 period="daily", 
                 start_date=start_date, 
                 end_date=end_date, 
@@ -144,15 +162,14 @@ def download_batch_data(stock_list, start_date="20100101", end_date="20201231",
     # 使用tqdm显示进度
     with tqdm(total=len(stock_list), desc="下载进度") as pbar:
         for stock_code in stock_list:
+            # 统计跳过的股票（数据已存在且完整）
+            csv_file = os.path.join(output_dir, f"{stock_code}.csv")
+            if os.path.exists(csv_file) and success:
+                continue
+            
             stock_code, success, count = download_stock_data(stock_code, start_date, end_date, output_dir)
             results.append((stock_code, success, count))
             pbar.update(1)
-            
-            if success:
-                pbar.set_postfix({
-                    '当前股票': stock_code, 
-                    '数据条数': count
-                })
     
     return results
 
