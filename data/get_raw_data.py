@@ -6,6 +6,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from tqdm import tqdm
+from pathlib import Path
+import sys
 
 # 设置日志 - 精简输出
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -169,8 +171,86 @@ def download_batch_data(stock_list, start_date="20100101", end_date="20201231", 
     
     return results
 
-def main(force_update_stock_list=False, start_index=0):
-    """主函数"""
+def get_stock_info(symbol, info_type: str):
+    """
+    获取股票的个股信息，如股票简称、总股本、流通股、总市值、流通市值、行业、上市时间等.
+    """
+    try:
+        # 使用akshare获取股票信息
+        stock_info = ak.stock_individual_info_em(symbol=symbol)
+        
+        # 查找行业信息
+        info_row = stock_info[stock_info['item'] == info_type]
+        if not info_row.empty:
+            return info_row.iloc[0]['value']
+        else:
+            return "Unknown"
+    except Exception as e:
+        print(f"获取股票 {symbol} {info_type} 信息失败: {e}")
+        return "Unknown"
+
+def add_info_to_stock_data():
+    """
+    为dataset文件夹中的每支股票数据添加行业信息
+    """
+    # 设置路径
+    dataset_path = Path("dataset")
+    
+    # 获取所有CSV文件
+    csv_files = list(dataset_path.glob("*.csv"))
+    
+    # 过滤掉非股票数据文件
+    stock_files = [f for f in csv_files if f.name != "stock_list_cache.csv" and f.name != "successful_stocks.csv"]
+    
+    print(f"找到 {len(stock_files)} 个股票数据文件")
+    
+    # 处理每个股票文件
+    for i, file_path in enumerate(stock_files):
+        try:
+            # 从文件名获取股票代码
+            stock_code = file_path.stem
+            
+            print(f"处理第 {i+1}/{len(stock_files)} 个文件: {stock_code}")
+            
+            # 读取股票数据
+            df = pd.read_csv(file_path)
+            
+            # 检查是否已经有总市值列
+            if '总市值' in df.columns:
+                print(f"股票 {stock_code} 已有总市值信息，跳过")
+                continue
+            
+            # 获取行业信息
+            industry = get_stock_info(stock_code, "行业")
+            
+            # 添加行业列
+            df['行业'] = industry
+            
+            # 检查是否已经有行业列
+            if '行业' in df.columns:
+                print(f"股票 {stock_code} 已有行业信息，跳过")
+                continue
+            
+            # 获取行业信息
+            industry = get_stock_info(stock_code, "行业")
+            
+            # 添加行业列
+            df['行业'] = industry
+            
+            # 保存更新后的数据
+            df.to_csv(file_path, index=False)
+            
+            print(f"股票 {stock_code} 行业信息已添加: {industry}")
+            
+            # 添加延时避免请求过于频繁
+            time.sleep(0.5)
+            
+        except Exception as e:
+            print(f"处理股票 {stock_code} 时出错: {e}")
+            continue
+        
+def get_hist_data(force_update_stock_list=False, start_index=0):
+    """获取股票历史数据"""
     logger.info("开始获取股票列表...")
     
     # 获取股票列表
@@ -246,8 +326,6 @@ def main(force_update_stock_list=False, start_index=0):
     logger.info(f"成功下载的股票列表已保存到: {output_dir}/successful_stocks.csv")
 
 if __name__ == "__main__":
-    import sys
-    
     # 检查是否有强制更新参数
     force_update = "--force-update" in sys.argv or "-f" in sys.argv
     
@@ -273,4 +351,6 @@ if __name__ == "__main__":
     if start_index > 0:
         logger.info(f"将从第 {start_index} 项开始下载股票数据")
     
-    main(force_update_stock_list=force_update, start_index=start_index)
+    get_hist_data(force_update_stock_list=force_update, start_index=start_index)
+    
+    add_info_to_stock_data()
