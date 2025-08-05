@@ -40,64 +40,59 @@ def get_exchange_by_code(stock_code):
     else:
         return 'Unknown'
 
-def get_stock_list(force_update=False):
+def get_stock_list(force_update=False, start_index=0):
     """获取股票列表，按交易所分类，优先从本地缓存读取"""
     cache_file = "dataset/stock_list_cache.csv"
     
+    if not os.path.exists(cache_file) or force_update:
+        try:
+            if force_update:
+                logger.info("强制更新股票列表...")
+            else:
+                logger.info("从网络获取股票列表...")
+            # 获取A股实时行情数据
+            df = ak.stock_zh_a_spot_em()
+        
+            # 保存到本地缓存
+            df.to_csv(cache_file, index=False, encoding='utf-8-sig')
+            logger.info(f"股票列表已保存到本地缓存: {cache_file}")
+        
+        except Exception as e:
+            logger.error(f"获取股票列表失败: {e}")
+            return [], []
+    
     # 检查本地缓存是否存在且不强制更新
-    if os.path.exists(cache_file) and not force_update:
+    else:
         try:
             logger.info("从本地缓存读取股票列表...")
             df = pd.read_csv(cache_file, encoding='utf-8-sig')
             
-            # 添加交易所列
-            df['交易所'] = df['代码'].apply(get_exchange_by_code)
-            
-            # 过滤有效的股票代码
-            valid_df = df[df['交易所'].isin(['SSE', 'SZSE'])]
-            
-            # 按交易所分组并选择前500支
-            sse_stocks = valid_df[valid_df['交易所'] == 'SSE']['代码'].head(500).tolist()
-            szse_stocks = valid_df[valid_df['交易所'] == 'SZSE']['代码'].head(500).tolist()
-            
-            logger.info(f"从缓存获取到上交所股票: {len(sse_stocks)}支")
-            logger.info(f"从缓存获取到深交所股票: {len(szse_stocks)}支")
-            
-            return sse_stocks, szse_stocks
-            
         except Exception as e:
-            logger.warning(f"读取本地缓存失败: {e}，将重新获取股票列表")
+            logger.warning(f"读取本地缓存失败: {e}")
+            
+    # 添加交易所列
+    df['交易所'] = df['代码'].apply(get_exchange_by_code)
     
-    try:
-        if force_update:
-            logger.info("强制更新股票列表...")
-        else:
-            logger.info("从网络获取股票列表...")
-        # 获取A股实时行情数据
-        df = ak.stock_zh_a_spot_em()
+    # 过滤有效的股票代码
+    valid_df = df[df['交易所'].isin(['SSE', 'SZSE'])]
+    
+    # 从指定索引开始选择股票
+    if start_index > 0:
+        logger.info(f"从第 {start_index} 项开始选择股票...")
+        valid_df = valid_df.iloc[start_index:]
+    
+    # 按交易所分组并选择前500支
+    # sse_stocks = valid_df[valid_df['交易所'] == 'SSE']['代码'].head(500).tolist()
+    # szse_stocks = valid_df[valid_df['交易所'] == 'SZSE']['代码'].head(500).tolist()
+    
+    sse_stocks = valid_df[valid_df['交易所'] == 'SSE']['代码'].tolist()
+    szse_stocks = valid_df[valid_df['交易所'] == 'SZSE']['代码'].tolist()
+    
+    logger.info(f"从缓存获取到上交所股票: {len(sse_stocks)}支")
+    logger.info(f"从缓存获取到深交所股票: {len(szse_stocks)}支")
+    
+    return sse_stocks, szse_stocks
         
-        # 保存到本地缓存
-        df.to_csv(cache_file, index=False, encoding='utf-8-sig')
-        logger.info(f"股票列表已保存到本地缓存: {cache_file}")
-        
-        # 添加交易所列
-        df['交易所'] = df['代码'].apply(get_exchange_by_code)
-        
-        # 过滤有效的股票代码
-        valid_df = df[df['交易所'].isin(['SSE', 'SZSE'])]
-        
-        # 按交易所分组并选择前500支
-        sse_stocks = valid_df[valid_df['交易所'] == 'SSE']['代码'].head(500).tolist()
-        szse_stocks = valid_df[valid_df['交易所'] == 'SZSE']['代码'].head(500).tolist()
-        
-        logger.info(f"获取到上交所股票: {len(sse_stocks)}支")
-        logger.info(f"获取到深交所股票: {len(szse_stocks)}支")
-        
-        return sse_stocks, szse_stocks
-        
-    except Exception as e:
-        logger.error(f"获取股票列表失败: {e}")
-        return [], []
 
 def download_stock_data(stock_code, start_date="20100101", end_date="20201231", output_dir="stock_data", max_retries=3):
     """下载单支股票的历史数据，带重试机制"""
@@ -115,7 +110,7 @@ def download_stock_data(stock_code, start_date="20100101", end_date="20201231", 
             os.makedirs(output_dir, exist_ok=True)
             
             # 添加5秒延迟，防止被封IP
-            time.sleep(5)
+            time.sleep(2)
             
             # 获取股票历史数据
             df = ak.stock_zh_a_hist(
@@ -154,8 +149,7 @@ def download_stock_data(stock_code, start_date="20100101", end_date="20201231", 
     
     return stock_code, False, 0
 
-def download_batch_data(stock_list, start_date="20100101", end_date="20201231", 
-                       output_dir="stock_data", max_workers=1):
+def download_batch_data(stock_list, start_date="20100101", end_date="20201231", output_dir="stock_data", max_workers=1):
     """串行下载股票数据，避免限流"""
     results = []
     
@@ -164,7 +158,9 @@ def download_batch_data(stock_list, start_date="20100101", end_date="20201231",
         for stock_code in stock_list:
             # 统计跳过的股票（数据已存在且完整）
             csv_file = os.path.join(output_dir, f"{stock_code}.csv")
-            if os.path.exists(csv_file) and success:
+            if os.path.exists(csv_file):
+                # 如果文件已存在，跳过下载
+                pbar.update(1)
                 continue
             
             stock_code, success, count = download_stock_data(stock_code, start_date, end_date, output_dir)
@@ -173,12 +169,12 @@ def download_batch_data(stock_list, start_date="20100101", end_date="20201231",
     
     return results
 
-def main(force_update_stock_list=False):
+def main(force_update_stock_list=False, start_index=0):
     """主函数"""
     logger.info("开始获取股票列表...")
     
     # 获取股票列表
-    sse_stocks, szse_stocks = get_stock_list(force_update=force_update_stock_list)
+    sse_stocks, szse_stocks = get_stock_list(force_update=force_update_stock_list, start_index=start_index)
     
     if not sse_stocks and not szse_stocks:
         logger.error("无法获取股票列表")
@@ -217,8 +213,6 @@ def main(force_update_stock_list=False):
         
         logger.info(f"已处理 {total_processed}/{len(all_stocks)} 支股票，成功获得 {len(successful_stocks)} 支数据完整的股票")
         
-        # 每批次处理后休息10秒
-        time.sleep(10)
         
         # 如果已经获得足够的股票，停止下载
         if len(successful_stocks) >= 1000:
@@ -226,7 +220,7 @@ def main(force_update_stock_list=False):
             break
     
     # 如果还不够1000支，继续处理剩余股票
-    if len(successful_stocks) < 1000 and total_processed < len(all_stocks):
+    if len(successful_stocks) < 1000 and total_processed < 5409:
         remaining_stocks = all_stocks[total_processed:]
         logger.info(f"继续处理剩余 {len(remaining_stocks)} 支股票...")
         
@@ -257,7 +251,26 @@ if __name__ == "__main__":
     # 检查是否有强制更新参数
     force_update = "--force-update" in sys.argv or "-f" in sys.argv
     
+    # 检查是否有起始索引参数
+    start_index = 0
+    for i, arg in enumerate(sys.argv):
+        if arg == "--start-index" and i + 1 < len(sys.argv):
+            try:
+                start_index = int(sys.argv[i + 1])
+            except ValueError:
+                logger.error("起始索引必须是整数")
+                sys.exit(1)
+        elif arg.startswith("--start-index="):
+            try:
+                start_index = int(arg.split("=")[1])
+            except ValueError:
+                logger.error("起始索引必须是整数")
+                sys.exit(1)
+    
     if force_update:
         logger.info("检测到强制更新参数，将重新获取股票列表")
     
-    main(force_update_stock_list=force_update)
+    if start_index > 0:
+        logger.info(f"将从第 {start_index} 项开始下载股票数据")
+    
+    main(force_update_stock_list=force_update, start_index=start_index)

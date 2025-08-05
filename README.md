@@ -9,23 +9,28 @@ pip install -r requirements.txt
 ## 使用方法
 
 ### 基本使用
+
 ```bash
 python data.py
 ```
 
 ### 强制更新股票列表
+
 ```bash
 python data.py --force-update
 # 或者
 python data.py -f
 ```
 
-## 文件说明
+### 从指定索引开始下载
 
-- `data.py`: 主程序文件
-- `stock_list_cache.csv`: 股票列表缓存文件（自动生成）
-- `dataset/`: 下载的股票数据存储目录
-- `dataset/successful_stocks.csv`: 成功下载的股票列表
+```bash
+# 从第1271项开始下载
+python data.py --start-index 1271
+
+# 或者使用等号形式
+python data.py --start-index=1271
+```
 
 ## 缓存机制
 
@@ -37,9 +42,9 @@ python data.py -f
 
 ## 输出文件
 
-- `stock_list_cache.csv`: 股票列表缓存
-- `dataset/股票代码.csv`: 每支股票的历史数据
-- `dataset/successful_stocks.csv`: 成功下载的股票代码列表
+- `dataset/stock_list_cache.csv`: 股票列表缓存
+- `dataset/successful_stocks.csv`: 成功下载的股票列表
+- `dataset/*.csv`: 各股票的历史数据文件
 
 ## 注意事项
 
